@@ -41,6 +41,21 @@ GitHub Actions 在每次分支 push 和 `v*.*.*` tag push 时构建并推送镜�
 docker run -d --name nodeseek-tg-push --restart unless-stopped --env-file .env --mount source=nodeseek-data,target=/app/data ghcr.io/yeqingky/nodeseek-tg-push:latest
 ```
 
+### Docker Compose
+
+仓库自带 `compose.yml`, 使用 GHCR 的 `latest` 镜像, 并将本机 `.env` 和 `./data` 挂载到容器:
+
+```sh
+mkdir -p data
+chown -R 1000:1000 data
+chmod 750 data
+docker compose pull
+docker compose up -d
+docker compose logs -f nodeseek-tg-push
+```
+
+更新镜像时再次执行 `docker compose pull` 和 `docker compose up -d`; 停止服务使用 `docker compose down`, `data/` 中的游标文件会保留。
+
 ## 配置
 
 所有运行配置都从 `.env` 读取。不同用途的变量以空行分组:

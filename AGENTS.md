@@ -14,6 +14,7 @@ Poll a public Telegram channel preview, extract linked NodeSeek posts, and forwa
 - `src/logger.ts`: format timestamped source logs.
 - `src/index.ts`: polling lifecycle and timestamped service logs.
 - `Dockerfile`: Alpine Node.js runtime that starts the TypeScript entry point with `npm start`.
+- `compose.yml`: deploy the GHCR image with the local `.env` and `./data` bind mounts.
 - `.github/workflows/docker.yml`: CI verification and GHCR multi-platform image publishing.
 
 ## Development and Verification
@@ -21,6 +22,7 @@ Poll a public Telegram channel preview, extract linked NodeSeek posts, and forwa
 - Install dependencies with `npm install`.
 - Type-check with `npm run typecheck`.
 - Build with `npm run build`.
+- Validate the Compose file with `docker compose config`.
 - Configure `.env` from `.env.example`, then run `npm start`.
 
 ## Required Behavior

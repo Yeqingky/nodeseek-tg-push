@@ -1,0 +1,9 @@
+services:
+  nodeseek-tg-push:
+    image: ghcr.io/yeqingky/nodeseek-tg-push:latest
+    container_name: nodeseek-tg-push
+    restart: unless-stopped
+    network_mode: host
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
