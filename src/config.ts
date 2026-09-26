@@ -1,15 +1,26 @@
+import type { KeywordFilterMode } from "./filter.js";
+
 export interface AppConfig {
   botToken: string;
   targetChatId: string;
   enabledSources: string[];
-  sourceChannel: string;
   pollIntervalMs: number;
   requestTimeoutMs: number;
-  maxPagesPerPoll: number;
+  globalBlacklistKeywords: string[];
+  nodeSeekMaxPagesPerPoll: number;
   nodeSeekFilterEnabled: boolean;
-  nodeSeekFilterMode: "blacklist" | "whitelist";
+  nodeSeekFilterMode: KeywordFilterMode;
   nodeSeekFilterKeywords: string[];
+  sbsbFilterEnabled: boolean;
+  sbsbFilterMode: KeywordFilterMode;
+  sbsbFilterKeywords: string[];
   databasePath: string;
+}
+
+interface FilterSettings {
+  enabled: boolean;
+  mode: KeywordFilterMode;
+  keywords: string[];
 }
 
 function requiredValue(env: NodeJS.ProcessEnv, name: string): string {
@@ -64,6 +75,26 @@ function parseBoolean(
   throw new Error(`${name} must be true or false`);
 }
 
+function splitKeywords(value: string | undefined): string[] {
+  return (value ?? "")
+    .split(",")
+    .map((keyword) => keyword.trim())
+    .filter(Boolean);
+}
+
+function parseFilterSettings(env: NodeJS.ProcessEnv, prefix: string): FilterSettings {
+  const enabled = parseBoolean(env, `${prefix}_FILTER_ENABLED`, false);
+  const mode = env[`${prefix}_FILTER_MODE`]?.trim().toLowerCase() || "blacklist";
+  if (mode !== "blacklist" && mode !== "whitelist") {
+    throw new Error(`${prefix}_FILTER_MODE must be blacklist or whitelist`);
+  }
+  const keywords = splitKeywords(env[`${prefix}_FILTER_KEYWORDS`]);
+  if (enabled && keywords.length === 0) {
+    throw new Error(`${prefix}_FILTER_KEYWORDS is required when filtering is enabled`);
+  }
+  return { enabled, mode, keywords };
+}
+
 function parseEnabledSources(value: string | undefined): string[] {
   const sourceNames = (value?.trim() || "nodeseek")
     .split(",")
@@ -76,39 +107,23 @@ function parseEnabledSources(value: string | undefined): string[] {
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv): AppConfig {
-  const sourceChannel = (
-    env.NODESEEK_SOURCE_CHANNEL?.trim()
-    || env.TELEGRAM_SOURCE_CHANNEL?.trim()
-    || "nodeseekc"
-  ).replace(/^@/, "");
-  if (!/^[A-Za-z0-9_]{5,32}$/.test(sourceChannel)) {
-    throw new Error("NODESEEK_SOURCE_CHANNEL must be a Telegram channel username");
-  }
-
-  const nodeSeekFilterEnabled = parseBoolean(env, "NODESEEK_FILTER_ENABLED", false);
-  const nodeSeekFilterMode = (env.NODESEEK_FILTER_MODE?.trim().toLowerCase() || "blacklist");
-  if (nodeSeekFilterMode !== "blacklist" && nodeSeekFilterMode !== "whitelist") {
-    throw new Error("NODESEEK_FILTER_MODE must be blacklist or whitelist");
-  }
-  const nodeSeekFilterKeywords = (env.NODESEEK_FILTER_KEYWORDS || "")
-    .split(",")
-    .map((keyword) => keyword.trim())
-    .filter(Boolean);
-  if (nodeSeekFilterEnabled && nodeSeekFilterKeywords.length === 0) {
-    throw new Error("NODESEEK_FILTER_KEYWORDS is required when filtering is enabled");
-  }
+  const nodeSeekFilter = parseFilterSettings(env, "NODESEEK");
+  const sbsbFilter = parseFilterSettings(env, "SBSB");
 
   return {
     botToken: requiredValue(env, "TELEGRAM_BOT_TOKEN"),
     targetChatId: requiredValue(env, "TELEGRAM_TARGET_CHAT_ID"),
     enabledSources: parseEnabledSources(env.ENABLED_SOURCES),
-    sourceChannel,
-    pollIntervalMs: positiveIntegerWithLegacyName(env, "NODESEEK_POLL_INTERVAL_MS", "POLL_INTERVAL_MS", 60_000),
+    pollIntervalMs: positiveIntegerWithLegacyName(env, "POLL_INTERVAL_MS", "NODESEEK_POLL_INTERVAL_MS", 60_000),
     requestTimeoutMs: positiveInteger(env, "REQUEST_TIMEOUT_MS", 15_000),
-    maxPagesPerPoll: positiveIntegerWithLegacyName(env, "NODESEEK_MAX_PAGES_PER_POLL", "MAX_PAGES_PER_POLL", 100),
-    nodeSeekFilterEnabled,
-    nodeSeekFilterMode,
-    nodeSeekFilterKeywords,
+    globalBlacklistKeywords: splitKeywords(env.GLOBAL_BLACKLIST_KEYWORDS),
+    nodeSeekMaxPagesPerPoll: positiveIntegerWithLegacyName(env, "NODESEEK_MAX_PAGES_PER_POLL", "MAX_PAGES_PER_POLL", 100),
+    nodeSeekFilterEnabled: nodeSeekFilter.enabled,
+    nodeSeekFilterMode: nodeSeekFilter.mode,
+    nodeSeekFilterKeywords: nodeSeekFilter.keywords,
+    sbsbFilterEnabled: sbsbFilter.enabled,
+    sbsbFilterMode: sbsbFilter.mode,
+    sbsbFilterKeywords: sbsbFilter.keywords,
     databasePath: env.DATABASE_PATH?.trim() || "./data/state.sqlite",
   };
 }

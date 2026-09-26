@@ -5,7 +5,7 @@ function cleanText(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-export function parseNodeSeekPostUrl(href: string): { nodeSeekId: number; url: string } | null {
+export function parseNodeSeekPostUrl(href: string): { postId: number; url: string } | null {
   let parsed: URL;
   try {
     parsed = new URL(href, "https://www.nodeseek.com");
@@ -29,7 +29,7 @@ export function parseNodeSeekPostUrl(href: string): { nodeSeekId: number; url: s
   }
 
   return {
-    nodeSeekId,
+    postId: nodeSeekId,
     url: `https://www.nodeseek.com${parsed.pathname.replace(/\/$/, "")}`,
   };
 }
@@ -61,16 +61,16 @@ export function parseTelegramPage(html: string): ParsedTelegramPage {
       }
       const postLink = parseNodeSeekPostUrl(href);
       if (postLink) {
-        links.set(postLink.nodeSeekId, postLink.url);
+        links.set(postLink.postId, postLink.url);
       }
     });
 
-    for (const [nodeSeekId, url] of links) {
-      if (seenPostIds.has(nodeSeekId)) {
+    for (const [postId, url] of links) {
+      if (seenPostIds.has(postId)) {
         continue;
       }
-      seenPostIds.add(nodeSeekId);
-      posts.push({ nodeSeekId, url, sourceMessageId, text, excerpt, publishedAt });
+      seenPostIds.add(postId);
+      posts.push({ postId, url, sourceMessageId, text, excerpt, publishedAt });
     }
   });
 
@@ -80,6 +80,6 @@ export function parseTelegramPage(html: string): ParsedTelegramPage {
     ? parsedBefore
     : null;
 
-  posts.sort((left, right) => left.nodeSeekId - right.nodeSeekId);
+  posts.sort((left, right) => left.postId - right.postId);
   return { posts, messageCount: messages.length, nextBefore };
 }

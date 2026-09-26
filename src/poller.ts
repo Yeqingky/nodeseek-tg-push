@@ -1,13 +1,13 @@
 import type { AppConfig } from "./config.js";
-import { formatPostMessage } from "./message-format.js";
-import { formatLogLine } from "./logger.js";
-import { evaluatePostFilter } from "./filter.js";
+import { deliverPost } from "./delivery.js";
 import { parseNodeSeekPostUrl, parseTelegramPage } from "./parser.js";
 import { fetchSourceHtml } from "./source.js";
 import { StateStore } from "./state-store.js";
 import type { SourcePost } from "./types.js";
 
 const SOURCE_NAME = "nodeseek";
+const LOG_NAME = "NodeSeek";
+export const NODESEEK_SOURCE_CHANNEL = "nodeseekc";
 
 export interface PollerDependencies {
   store: StateStore;
@@ -23,12 +23,12 @@ export class ChannelPoller {
   constructor(
     private readonly config: Pick<
       AppConfig,
-      | "sourceChannel"
       | "requestTimeoutMs"
-      | "maxPagesPerPoll"
+      | "nodeSeekMaxPagesPerPoll"
       | "nodeSeekFilterEnabled"
       | "nodeSeekFilterMode"
       | "nodeSeekFilterKeywords"
+      | "globalBlacklistKeywords"
     >,
     private readonly dependencies: PollerDependencies,
   ) {
@@ -42,7 +42,7 @@ export class ChannelPoller {
     if (scannedUrl !== null && parsedScannedUrl === null) {
       throw new Error(`Invalid saved NodeSeek scan URL: ${scannedUrl}`);
     }
-    const scannedId = parsedScannedUrl?.nodeSeekId ?? null;
+    const scannedId = parsedScannedUrl?.postId ?? null;
 
     if (scannedId === null) {
       const latestPost = await this.findLatestPost();
@@ -60,7 +60,7 @@ export class ChannelPoller {
 
   private async findLatestPost(): Promise<SourcePost | null> {
     let before: number | null = null;
-    for (let pageNumber = 0; pageNumber < this.config.maxPagesPerPoll; pageNumber += 1) {
+    for (let pageNumber = 0; pageNumber < this.config.nodeSeekMaxPagesPerPoll; pageNumber += 1) {
       const page = await this.loadPage(before);
       const latestPost = page.posts.at(-1);
       if (latestPost) {
@@ -72,36 +72,36 @@ export class ChannelPoller {
       this.assertCursorProgress(before, page.nextBefore);
       before = page.nextBefore;
     }
-    throw new Error(`No linked NodeSeek post found within ${this.config.maxPagesPerPoll} Telegram pages`);
+    throw new Error(`No linked NodeSeek post found within ${this.config.nodeSeekMaxPagesPerPoll} Telegram pages`);
   }
 
   private async findPostsAfter(checkpointId: number): Promise<SourcePost[]> {
     const found = new Map<number, SourcePost>();
     let before: number | null = null;
 
-    for (let pageNumber = 0; pageNumber < this.config.maxPagesPerPoll; pageNumber += 1) {
+    for (let pageNumber = 0; pageNumber < this.config.nodeSeekMaxPagesPerPoll; pageNumber += 1) {
       const page = await this.loadPage(before);
       for (const post of page.posts) {
-        if (post.nodeSeekId > checkpointId) {
-          found.set(post.nodeSeekId, post);
+        if (post.postId > checkpointId) {
+          found.set(post.postId, post);
         }
       }
 
-      if (page.posts.some((post) => post.nodeSeekId <= checkpointId)) {
-        return [...found.values()].sort((left, right) => left.nodeSeekId - right.nodeSeekId);
+      if (page.posts.some((post) => post.postId <= checkpointId)) {
+        return [...found.values()].sort((left, right) => left.postId - right.postId);
       }
       if (page.nextBefore === null) {
-        return [...found.values()].sort((left, right) => left.nodeSeekId - right.nodeSeekId);
+        return [...found.values()].sort((left, right) => left.postId - right.postId);
       }
       this.assertCursorProgress(before, page.nextBefore);
       before = page.nextBefore;
     }
 
-    throw new Error(`Could not reach saved NodeSeek ID ${checkpointId} within ${this.config.maxPagesPerPoll} Telegram pages`);
+    throw new Error(`Could not reach saved NodeSeek ID ${checkpointId} within ${this.config.nodeSeekMaxPagesPerPoll} Telegram pages`);
   }
 
   private async loadPage(before: number | null) {
-    const url = new URL(`https://t.me/s/${encodeURIComponent(this.config.sourceChannel)}`);
+    const url = new URL(`https://t.me/s/${encodeURIComponent(NODESEEK_SOURCE_CHANNEL)}`);
     if (before !== null) {
       url.searchParams.set("before", String(before));
     }
@@ -121,19 +121,26 @@ export class ChannelPoller {
   }
 
   private async deliver(post: SourcePost): Promise<void> {
-    const decision = evaluatePostFilter(post, {
-      enabled: this.config.nodeSeekFilterEnabled,
-      mode: this.config.nodeSeekFilterMode,
-      keywords: this.config.nodeSeekFilterKeywords,
-    });
-    if (!decision.shouldPush) {
-      this.dependencies.store.setScannedUrl(SOURCE_NAME, post.url);
-      this.log(formatLogLine("✗ NodeSeek", `${post.url} (${decision.reason})`));
-      return;
-    }
-
-    await this.dependencies.sendTelegram(formatPostMessage(post));
-    this.dependencies.store.setScannedUrl(SOURCE_NAME, post.url);
-    this.log(formatLogLine("✓ NodeSeek", post.url));
+    await deliverPost(
+      {
+        store: this.dependencies.store,
+        sendTelegram: this.dependencies.sendTelegram,
+        log: this.log,
+      },
+      {
+        source: SOURCE_NAME,
+        logName: LOG_NAME,
+        includeExcerpt: false,
+        filter: {
+          globalBlacklistKeywords: this.config.globalBlacklistKeywords,
+          source: {
+            enabled: this.config.nodeSeekFilterEnabled,
+            mode: this.config.nodeSeekFilterMode,
+            keywords: this.config.nodeSeekFilterKeywords,
+          },
+        },
+      },
+      post,
+    );
   }
 }
